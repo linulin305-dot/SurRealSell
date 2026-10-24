@@ -5,6 +5,7 @@ import net.milkbowl.vault.economy.EconomyResponse;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
+import org.bukkit.Sound;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
@@ -18,6 +19,10 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.EnchantmentStorageMeta;
+import org.bukkit.inventory.meta.PotionMeta;
+import org.bukkit.enchantments.Enchantment;
+import org.bukkit.NamespacedKey;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -35,6 +40,7 @@ public final class SurRealSell extends JavaPlugin implements Listener {
     private final Map<UUID, SellHolder> openSessions = new HashMap<>();
     private final Set<UUID> completedSessions = new HashSet<>();
     private final Map<Material, Double> prices = new HashMap<>();
+    private final Map<String, Double> specialPrices = new HashMap<>();
 
     @Override
     public void onEnable() {
@@ -69,21 +75,54 @@ public final class SurRealSell extends JavaPlugin implements Listener {
 
     private void loadPrices() {
         prices.clear();
+        specialPrices.clear();
         ConfigurationSection section = getConfig().getConfigurationSection("prices");
         if (section == null) return;
         for (String key : section.getKeys(false)) {
-            Material material = Material.matchMaterial(key);
-            if (material == null || !material.isItem()) {
-                getLogger().warning("Ignoring invalid item material in prices: " + key);
-                continue;
-            }
             double price = section.getDouble(key, 0.0);
             if (!Double.isFinite(price) || price < 0.0) {
                 getLogger().warning("Ignoring invalid negative/non-finite price for " + key);
                 continue;
             }
+            if (key.contains(":")) {
+                specialPrices.put(key.toUpperCase(Locale.ROOT), price);
+                continue;
+            }
+            Material material = Material.matchMaterial(key);
+            if (material == null || !material.isItem()) {
+                getLogger().warning("Ignoring invalid item material in prices: " + key);
+                continue;
+            }
             prices.put(material, price);
         }
+    }
+
+    /** Returns the configured price for an item, including enchanted books and potion variants. */
+    private Double priceFor(ItemStack item) {
+        if (item == null || item.getType().isAir()) return null;
+        Material material = item.getType();
+        ItemMeta meta = item.getItemMeta();
+
+        if (material == Material.ENCHANTED_BOOK && meta instanceof EnchantmentStorageMeta bookMeta) {
+            double total = 0.0;
+            boolean found = false;
+            for (Map.Entry<Enchantment, Integer> entry : bookMeta.getStoredEnchants().entrySet()) {
+                String key = "ENCHANTED_BOOK:" + entry.getKey().getKey().getKey().toUpperCase(Locale.ROOT) + "_" + entry.getValue();
+                Double price = specialPrices.get(key);
+                if (price != null) {
+                    total += price;
+                    found = true;
+                }
+            }
+            if (found) return total;
+        }
+
+        if (meta instanceof PotionMeta potionMeta) {
+            String key = material.name() + ":" + potionMeta.getBasePotionType().name();
+            Double special = specialPrices.get(key.toUpperCase(Locale.ROOT));
+            if (special != null) return special;
+        }
+        return prices.get(material);
     }
 
     @Override
@@ -161,7 +200,7 @@ public final class SurRealSell extends JavaPlugin implements Listener {
         for (int slot = 0; slot < 45; slot++) {
             ItemStack item = inventory.getItem(slot);
             if (item == null || item.getType().isAir()) continue;
-            Double price = prices.get(item.getType());
+            Double price = priceFor(item);
             if (price != null && price > 0.0) total += price * item.getAmount();
         }
         return total;
@@ -172,7 +211,7 @@ public final class SurRealSell extends JavaPlugin implements Listener {
         for (int slot = 0; slot < 45; slot++) {
             ItemStack item = inventory.getItem(slot);
             if (item == null || item.getType().isAir()) continue;
-            Double price = prices.get(item.getType());
+            Double price = priceFor(item);
             if (price != null && price > 0.0) count += item.getAmount();
         }
         return count;
@@ -220,8 +259,49 @@ public final class SurRealSell extends JavaPlugin implements Listener {
         }
         int rawSlot = event.getRawSlot();
         if (rawSlot >= event.getView().getTopInventory().getSize()) {
-            // Avoid shift-clicking inventory items into the GUI; normal clicks are allowed in player inventory.
-            if (event.isShiftClick()) event.setCancelled(true);
+            // Shift-clicking from the player's inventory moves the stack into the sell menu.
+            if (event.isShiftClick()) {
+                event.setCancelled(true);
+                ItemStack clicked = event.getCurrentItem();
+                if (clicked == null || clicked.getType().isAir()) return;
+
+                Inventory sellInventory = event.getView().getTopInventory();
+                ItemStack moving = clicked.clone();
+                int originalAmount = moving.getAmount();
+
+                // First fill existing matching stacks, then use empty deposit slots.
+                for (int slot = 0; slot < 45 && moving.getAmount() > 0; slot++) {
+                    ItemStack existing = sellInventory.getItem(slot);
+                    if (existing == null || existing.getType().isAir() || !existing.isSimilar(moving)) continue;
+                    int space = existing.getMaxStackSize() - existing.getAmount();
+                    if (space <= 0) continue;
+                    int transfer = Math.min(space, moving.getAmount());
+                    existing.setAmount(existing.getAmount() + transfer);
+                    moving.setAmount(moving.getAmount() - transfer);
+                    sellInventory.setItem(slot, existing);
+                }
+                for (int slot = 0; slot < 45 && moving.getAmount() > 0; slot++) {
+                    ItemStack existing = sellInventory.getItem(slot);
+                    if (existing != null && !existing.getType().isAir()) continue;
+                    int transfer = Math.min(moving.getMaxStackSize(), moving.getAmount());
+                    ItemStack placed = moving.clone();
+                    placed.setAmount(transfer);
+                    sellInventory.setItem(slot, placed);
+                    moving.setAmount(moving.getAmount() - transfer);
+                }
+
+                int transferred = originalAmount - moving.getAmount();
+                if (transferred > 0) {
+                    if (moving.getAmount() <= 0) {
+                        event.setCurrentItem(null);
+                    } else {
+                        ItemStack remaining = clicked.clone();
+                        remaining.setAmount(moving.getAmount());
+                        event.setCurrentItem(remaining);
+                    }
+                    updatePreview(sellInventory);
+                }
+            }
             return;
         }
 
@@ -297,7 +377,7 @@ public final class SurRealSell extends JavaPlugin implements Listener {
         for (int slot = 0; slot < 45; slot++) {
             ItemStack item = inventory.getItem(slot);
             if (item == null || item.getType().isAir()) continue;
-            Double price = prices.get(item.getType());
+            Double price = priceFor(item);
             if (price != null && price > 0.0) inventory.setItem(slot, null);
         }
 
@@ -307,6 +387,21 @@ public final class SurRealSell extends JavaPlugin implements Listener {
         player.sendMessage(message("sold")
                 .replace("{count}", String.valueOf(count))
                 .replace("{total}", formatMoney(total)));
+        playSellSound(player);
+    }
+
+
+    private void playSellSound(Player player) {
+        if (!getConfig().getBoolean("sounds.sell.enabled", true)) return;
+        String configuredSound = getConfig().getString("sounds.sell.sound", "ENTITY_EXPERIENCE_ORB_PICKUP");
+        try {
+            Sound sound = Sound.valueOf(configuredSound.toUpperCase(Locale.ROOT));
+            float volume = (float) getConfig().getDouble("sounds.sell.volume", 1.0);
+            float pitch = (float) getConfig().getDouble("sounds.sell.pitch", 1.2);
+            player.playSound(player.getLocation(), sound, Math.max(0.0f, volume), Math.max(0.0f, pitch));
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            getLogger().warning("Invalid sound configured at sounds.sell.sound: " + configuredSound);
+        }
     }
 
     @EventHandler
@@ -314,49 +409,15 @@ public final class SurRealSell extends JavaPlugin implements Listener {
         if (!(event.getInventory().getHolder() instanceof SellHolder holder)) return;
         UUID uuid = holder.playerId();
         openSessions.remove(uuid);
-
-        Player player = (Player) event.getPlayer();
         if (completedSessions.remove(uuid)) {
-            // The green sell button already completed the sale. Return only unpriced items.
+            // The sold items were already removed. Return any remaining, unpriced items.
+            returnUnsoldItems((Player) event.getPlayer(), event.getInventory());
+            return;
+        }
+        if (event.getPlayer() instanceof Player player) {
             returnUnsoldItems(player, event.getInventory());
-            return;
+            player.sendMessage(message("returned"));
         }
-
-        // Closing the GUI with Escape (or any other close action) automatically sells
-        // priced items. If payment fails or there is nothing sellable, return all items.
-        sellOnClose(player, event.getInventory());
-    }
-
-    private void sellOnClose(Player player, Inventory inventory) {
-        double total = currentTotal(inventory);
-        int count = sellableItemCount(inventory);
-
-        if (total <= 0.0 || count <= 0) {
-            returnUnsoldItems(player, inventory);
-            player.sendMessage(message("nothing-to-sell"));
-            return;
-        }
-
-        EconomyResponse response = economy.depositPlayer(player, total);
-        if (response == null || !response.transactionSuccess()) {
-            returnUnsoldItems(player, inventory);
-            player.sendMessage(color(getConfig().getString("messages.prefix", "&5&lSurRealSell &8» ")
-                    + "&cThe payment failed. Your items have been returned."));
-            return;
-        }
-
-        // Payment succeeded: remove priced items and return anything without a configured price.
-        for (int slot = 0; slot < 45; slot++) {
-            ItemStack item = inventory.getItem(slot);
-            if (item == null || item.getType().isAir()) continue;
-            Double price = prices.get(item.getType());
-            if (price != null && price > 0.0) inventory.setItem(slot, null);
-        }
-
-        returnUnsoldItems(player, inventory);
-        player.sendMessage(message("sold")
-                .replace("{count}", String.valueOf(count))
-                .replace("{total}", formatMoney(total)));
     }
 
     private void returnUnsoldItems(Player player, Inventory inventory) {
