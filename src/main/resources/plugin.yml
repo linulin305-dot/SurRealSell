@@ -1,0 +1,21 @@
+name: SurRealSell
+version: '1.0.0'
+main: com.surrealsmp.sell.SurRealSell
+api-version: '1.21'
+author: surrealsmpofficial
+depend: [Vault]
+description: Inventory GUI selling with configurable item prices and Vault economy.
+
+commands:
+  sell:
+    description: Open the SurRealSell inventory or reload its configuration.
+    usage: /sell [reload]
+    aliases: [sells]
+
+permissions:
+  surrealsell.use:
+    description: Open the sell inventory.
+    default: true
+  surrealsell.admin:
+    description: Reload SurRealSell configuration.
+    default: op

@@ -1,0 +1,74 @@
+# SurRealSell by surrealsmpofficial
+# Prices are per single item. Set a price to 0 to disable selling that item.
+# Material names must match Bukkit Material names.
+# Changes can be applied with /sell reload.
+gui:
+  title: "&8&lSurRealSell"
+  # Slots 0-44 are the item deposit area. The final row is reserved for controls.
+  confirm-slot: 49
+  filler: "BLACK_STAINED_GLASS_PANE"
+  confirm-item: "LIME_STAINED_GLASS_PANE"
+  confirm-name: "&a&lSELL ITEMS"
+  confirm-lore:
+    - "&7Click to sell all supported items."
+    - "&7Estimated total: &a{total}"
+    - ""
+    - "&eItems without a price are returned."
+  total-slot: 47
+  total-item: "GOLD_INGOT"
+  total-name: "&6&lSale total"
+  total-lore:
+    - "&7Items you can sell: &f{count}"
+    - "&7Estimated payment: &a{total}"
+  currency-symbol: "$"
+
+messages:
+  prefix: "&5&lSurRealSell &8» "
+  no-permission: "&cYou don't have permission to do that."
+  player-only: "&cOnly players can use this command."
+  economy-missing: "&cVault economy is unavailable. Contact an administrator."
+  opened: "&7Put items in the menu, then click the green button to sell."
+  sold: "&aSold &f{count} &aitems for &2{total}&a!"
+  nothing-to-sell: "&cThere are no sellable items in the menu."
+  returned: "&7Unsold items have been returned to your inventory."
+  reloaded: "&aConfiguration reloaded."
+  invalid-material: "&cInvalid material in price list: {material}"
+
+# Prices are per individual item. Example: 3 diamonds at 100 each pays 300.
+prices:
+  DIAMOND: 100.0
+  DIAMOND_BLOCK: 900.0
+  EMERALD: 50.0
+  EMERALD_BLOCK: 450.0
+  IRON_INGOT: 10.0
+  IRON_BLOCK: 90.0
+  GOLD_INGOT: 15.0
+  GOLD_BLOCK: 135.0
+  COPPER_INGOT: 3.0
+  COAL: 5.0
+  CHARCOAL: 5.0
+  LAPIS_LAZULI: 4.0
+  REDSTONE: 3.0
+  QUARTZ: 5.0
+  ANCIENT_DEBRIS: 500.0
+  NETHERITE_SCRAP: 250.0
+  WHEAT: 2.0
+  CARROT: 2.0
+  POTATO: 2.0
+  BEETROOT: 2.0
+  SUGAR_CANE: 1.0
+  BAMBOO: 0.5
+  OAK_LOG: 2.0
+  SPRUCE_LOG: 2.0
+  BIRCH_LOG: 2.0
+  JUNGLE_LOG: 2.0
+  ACACIA_LOG: 2.0
+  DARK_OAK_LOG: 2.0
+  MANGROVE_LOG: 2.0
+  CHERRY_LOG: 2.0
+  COBBLESTONE: 0.5
+  STONE: 1.0
+  DIRT: 0.25
+  SAND: 0.5
+  GRAVEL: 0.5
+  OBSIDIAN: 10.0
